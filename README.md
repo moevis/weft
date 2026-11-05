@@ -1,171 +1,70 @@
 # Weft
 
-Named TCP services through an untrusted relay. `weftd` routes connections; `weft` publishes services or binds them to localhost. Payloads use end-to-end Noise encryption. No relay accounts or relay credential checks.
+通过中继连接远程 TCP 服务，端到端加密。一端发布，另一端绑定到本机即可使用。
 
-## Install
+## 安装
 
-After the repository is public and its first GitHub Release is published:
+支持 Linux / macOS，amd64 / arm64。安装到 `~/.local/bin`，无需 sudo。
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/moevis/weft/main/scripts/install.sh | bash -s -- moevis/weft
 ```
 
-Downloads the latest stable release, verifies SHA-256, and installs `weft` and
-`weftd` into `~/.local/bin` without sudo. Supports Linux/macOS on amd64/arm64.
-Requires Bash, curl, tar, and sha256sum or shasum. No configuration is modified.
-Checksums detect corrupted downloads; they do not protect against a compromised
-release repository. Inspect the installer before running it if required.
+仓库目前为私有，暂不支持匿名安装；可登录 GitHub 从 [Releases](https://github.com/moevis/weft/releases) 下载安装包。
 
-Pin a release or change the install directory:
+## 快速开始
+
+**1. 在服务器启动中继**
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/moevis/weft/main/scripts/install.sh \
-  | WEFT_VERSION=v0.1.0 WEFT_INSTALL_DIR="$HOME/bin" bash -s -- moevis/weft
+weftd -listen :9999
 ```
 
-## Build
-
-Requires Go 1.25 or newer.
+**2. 在设备侧发布服务**
 
 ```sh
-go build -o weft ./cmd/weft
-go build -o weftd ./cmd/weftd
+weft -channel phone -endpoint relay.example:9999:/phone-1 \
+  -publish adb:5555 -publish web:8888
 ```
 
-## GitHub Actions and releases
+首次运行自动生成密钥并保存配置。后续只需 `weft -channel phone`。
 
-GitHub-hosted runners require no self-hosted runner setup:
-
-- Branch pushes and pull requests run formatting checks, `go vet`, race tests,
-  and command builds on Ubuntu, using the Go version in `go.mod`. Release builds
-  cross-compile with `CGO_ENABLED=0`; macOS binaries are not tested on a hosted Mac.
-- Pushing a version tag runs the same checks before packaging both commands for
-  Linux and macOS, each on amd64 and arm64. Each archive includes the README;
-  `checksums.txt` contains SHA-256 checksums.
-- The release job uses the repository's automatic `GITHUB_TOKEN` with
-  `contents: write`; no personal access token is needed. It uploads assets to a
-  draft before making the release public. Hyphenated versions are prereleases.
-
-Enable Actions in the GitHub repository, push the code, then publish a version:
+**3. 导出连接配置，私下传给另一端**
 
 ```sh
-git tag v0.1.0
-git push origin v0.1.0
+(umask 077; weft -channel phone -export-client > phone-client.toml)
 ```
 
-Use a new tag for each release. Repository/organization policies must permit
-GitHub Actions and release creation. Windows and Android binaries are not
-included: Unix credential-file permissions are currently part of the contract.
-
-To exercise exactly the release packaging locally:
+**4. 在另一端连接**
 
 ```sh
-bash scripts/package.sh v0.1.0 dist
+weft -conf phone-client.toml -bind adb:5555 -- adb connect localhost:5555
 ```
 
-## Publish and connect
+本地端口就绪后执行 `adb connect`，隧道保持运行，按 Ctrl-C 关闭。设备侧需已有可访问的 `adbd` 服务。
+
+## 常用命令
 
 ```sh
-# Publicly reachable relay; default port is 8443.
-./weftd -listen :8443
-
-# Publisher: expose services reachable from THIS machine.
-./weft -channel phone -endpoint relay.example:/phone-1 \
-  -publish adb:5555 -publish localserver:8888
+weft -channel phone -list                  # 查看远端服务
+weft -channel phone -bind web:8080         # 远端 web → 本机 8080
+weft -channel phone -bind adb \
+  -- adb connect '{adb.addr}'              # 自动选择本地端口
+weft -h                                   # 所有参数
 ```
 
-First publication creates `~/.weft.toml`, generates an identity and random shared key, and saves the service mappings. Restart with `weft -channel phone`. Keys live directly inside the TOML; there are no separate key files. Keep this file private. Existing malformed or mismatched keys are rejected, never silently replaced.
+默认读取 `~/.weft.toml`，密钥直接保存在对应 channel 中。用 `-conf` 指定其他文件；只有一个 channel 时可省略 `-channel`。客户端使用导出的配置。
 
-Export a client configuration on the publisher:
+`-publish` 和 `-bind` 可重复指定。本地监听默认仅限 `127.0.0.1`。已有配置的临时参数覆盖不会保存，添加 `-save` 才写回。配置包含密钥，请勿公开。
+
+## 公钥模式
+
+默认使用共享密钥。若要为每个客户端单独授权，在新 channel 上执行：
 
 ```sh
-(umask 077; ./weft -channel phone -export-client > phone-client.toml)
-```
-
-Transfer it privately to the client. It includes the shared key, a separate client identity, and the pinned publisher public key; it does NOT contain the publisher private key or local target addresses.
-
-```sh
-./weft -conf ./phone-client.toml -channel phone -list
-./weft -conf ./phone-client.toml -channel phone -bind adb:5555
-# In another terminal:
-adb connect localhost:5555
-```
-
-Or run the local command once binding is ready:
-
-```sh
-./weft -conf ./phone-client.toml -channel phone \
-  -bind adb:5555 -- adb connect localhost:5555
-```
-
-The tunnel stays active after the command exits, because `adb connect` exits while the ADB server still needs its connection. Ctrl-C stops it. Add `-exit-with-command` for commands whose completion should stop the bindings. A failed child command closes the bindings and returns an error.
-
-Omit the local port to allocate one automatically:
-
-```sh
-./weft -conf ./phone-client.toml -channel phone \
-  -bind adb -- adb connect '{adb.addr}'
-```
-
-`{adb.addr}` expands to the actual local address. Arguments after `--` execute directly, not through a shell. Weft does not start ADB TCP mode, implement ADB, or emulate an Android device: the published target must already be a working `adbd` endpoint. Shizuku is not required by this TCP tunnel.
-
-## Channels and flags
-
-Default config: `~/.weft.toml`; override with `-conf PATH`. One configured channel is selected automatically. With `-endpoint` but no `-channel`, the endpoint path becomes the local channel name. Otherwise select with `-channel NAME`.
-
-```toml
-[channels.phone]
-endpoint = "relay.example:/phone-1"
-mode = "shared"
-private_key = "<base64, generated>"
-public_key = "<base64, generated>"
-secret = "<base64, generated>"
-
-[channels.phone.publish]
-adb = "127.0.0.1:5555"
-localserver = "127.0.0.1:8888"
-```
-
-- `-publish NAME:PORT` / `NAME:HOST:PORT`: repeatable. Default invocation publishes.
-- `-bind NAME[:PORT]` / `NAME:HOST:PORT`: repeatable. Defaults to loopback, port zero allocates an available port. Explicit non-loopback bindings expose the service to that network.
-- `-list [-json]`: list advertised services, without authenticating to the publisher or probing its local targets. `online` means its publisher is registered, not that the target accepts connections.
-- `-export-client`: write client TOML to stdout; notices go to stderr. Contains secrets.
-- `-save`: persist overrides. Initial publication and generated credentials are saved automatically; ordinary overrides are otherwise temporary.
-- `-verbose`: include relay/channel/mode details. Secrets are never logged.
-- `-h`: help. Exit status 0 for success, help, or signal shutdown; 1 for errors.
-
-Configuration writes use a same-directory temporary file, file sync, and atomic rename, with mode 0600. Existing files with group/other access are rejected: use `chmod 600 FILE`. Do not concurrently edit/export the same configuration from multiple processes; stop the publisher when changing identity or authorization, then restart it to reload.
-
-## Public-key mode
-
-No shared secret is needed in public-key mode. Export generates a distinct client identity and adds its public key to the publisher's `allowed_clients`.
-
-```sh
-# Create publisher identity and authorize the first client.
-(umask 077; ./weft -channel phone -endpoint relay.example:/phone-1 \
+(umask 077; weft -channel phone -endpoint relay.example:9999:/phone-1 \
   -mode public -export-client > phone-client.toml)
-
-# Publish, then use the exported config on the other machine as above.
-./weft -channel phone -publish adb:5555
+weft -channel phone -publish adb:5555
 ```
 
-Additional exports create additional client identities. Restart the publisher to load new authorizations. To revoke a public-key client, remove its key from `allowed_clients` and restart. Shared-key clients share access; revoke by rotating `secret` and redistributing client configurations. Do not switch modes by editing only `mode`: public mode must have no `secret`, and clients need matching credentials.
-
-## Transport and security boundaries
-
-- Independent encrypted stream for every local TCP connection; no merging or broadcasting clients' traffic.
-- Noise XX or XXpsk3, Curve25519 / ChaCha20-Poly1305 / SHA-256, with fresh ephemeral keys. Clients pin the publisher identity; public-only publishers require a client allowlist.
-- Authenticated bounded records, including directional EOF, preserve TCP half-close. Service selection and target errors are encrypted.
-- Raw TCP to the relay, not HTTP/WebSocket/TLS. It cannot be deployed behind an HTTP-only reverse proxy. Bindings are byte streams, not UDP forwarding.
-- No application queues, silent frame dropping, or unbounded buffering; ordinary TCP flow control applies when peers are slow.
-- Relay sees channel names, published service names, connection metadata and traffic sizes. Directory contents are NOT authenticated. Without relay registration authentication, another publisher can occupy an unused channel and deny access; identity pinning prevents it impersonating the expected publisher to a configured client.
-- Local program-to-Weft and Weft-to-target links are outside tunnel encryption. Keep them on loopback or another trusted link. Anyone who can reach a local binding can use it.
-- Disconnects close existing TCP streams. There is no automatic stream resumption or publisher reconnection; restart the affected process. This implementation has not undergone an independent security audit.
-
-## Verification
-
-```sh
-go test -race ./...
-```
-
-Tests cover relay routing and shutdown, authenticated stream integrity and half-close, identity pinning, client authorization, target errors, and configuration credential boundaries.
+客户端用法不变。新增客户端后重启发布端；撤销时删除配置中对应的 `allowed_clients` 公钥并重启。
