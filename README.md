@@ -37,7 +37,8 @@ go build -o weftd ./cmd/weftd
 GitHub-hosted runners require no self-hosted runner setup:
 
 - Branch pushes and pull requests run formatting checks, `go vet`, race tests,
-  and command builds on Ubuntu and macOS, using the Go version in `go.mod`.
+  and command builds on Ubuntu, using the Go version in `go.mod`. Release builds
+  cross-compile with `CGO_ENABLED=0`; macOS binaries are not tested on a hosted Mac.
 - Pushing a version tag runs the same checks before packaging both commands for
   Linux and macOS, each on amd64 and arm64. Each archive includes the README;
   `checksums.txt` contains SHA-256 checksums.
