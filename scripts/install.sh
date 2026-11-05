@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo="${1:-${WEFT_REPO:-}}"
+repo="${1:-${WEFT_REPO:-moevis/weft}}"
 version="${WEFT_VERSION:-latest}"
 install_dir="${WEFT_INSTALL_DIR:-$HOME/.local/bin}"
 if [[ ! "$repo" =~ ^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$ ]]; then

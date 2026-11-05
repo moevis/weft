@@ -22,7 +22,7 @@ web  :8888 --+              +-----------+              +-- :8080 <-- 浏览器
 支持 Linux / macOS，amd64 / arm64。安装到 `~/.local/bin`，无需 sudo。
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/moevis/weft/main/scripts/install.sh | bash -s -- moevis/weft
+curl -fsSL https://raw.githubusercontent.com/moevis/weft/main/scripts/install.sh | bash
 ```
 
 也可从 [Releases](https://github.com/moevis/weft/releases) 下载安装包。
