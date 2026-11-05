@@ -2,6 +2,21 @@
 
 通过中继连接远程 TCP 服务，端到端加密。一端发布，另一端绑定到本机即可使用。
 
+## 架构
+
+```text
+发布端                         公网中继                       访问端
+
+adbd :5555 --+              +-----------+              +-- :5555 <-- adb
+            +-- weft <----> |   weftd   | <----> weft --+
+web  :8888 --+              +-----------+              +-- :8080 <-- 浏览器
+
+                 <-------- 端到端加密 -------->
+```
+
+两端主动连接中继，无需发布端拥有公网 IP。`weftd` 按 channel 和服务名配对，
+只转发密文；访问端将服务绑定到本机端口。一个 channel 可发布多个服务，支持多个客户端独立连接。
+
 ## 安装
 
 支持 Linux / macOS，amd64 / arm64。安装到 `~/.local/bin`，无需 sudo。
@@ -10,7 +25,7 @@
 curl -fsSL https://raw.githubusercontent.com/moevis/weft/main/scripts/install.sh | bash -s -- moevis/weft
 ```
 
-仓库目前为私有，暂不支持匿名安装；可登录 GitHub 从 [Releases](https://github.com/moevis/weft/releases) 下载安装包。
+也可从 [Releases](https://github.com/moevis/weft/releases) 下载安装包。
 
 ## 快速开始
 
@@ -32,7 +47,7 @@ weft -channel phone -endpoint relay.example:9999:/phone-1 \
 **3. 导出连接配置，私下传给另一端**
 
 ```sh
-(umask 077; weft -channel phone -export-client > phone-client.toml)
+weft -channel phone -export-client -out phone-client.toml
 ```
 
 **4. 在另一端连接**
@@ -62,8 +77,8 @@ weft -h                                   # 所有参数
 默认使用共享密钥。若要为每个客户端单独授权，在新 channel 上执行：
 
 ```sh
-(umask 077; weft -channel phone -endpoint relay.example:9999:/phone-1 \
-  -mode public -export-client > phone-client.toml)
+weft -channel phone -endpoint relay.example:9999:/phone-1 \
+  -mode public -export-client -out phone-client.toml
 weft -channel phone -publish adb:5555
 ```
 

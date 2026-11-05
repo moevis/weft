@@ -26,7 +26,7 @@ func (v *values) String() string     { return strings.Join(*v, ",") }
 func (v *values) Set(s string) error { *v = append(*v, s); return nil }
 
 type options struct {
-	conf, channel, endpoint, mode                      string
+	conf, channel, endpoint, mode, out                 string
 	publish, bind                                      values
 	list, export, save, verbose, exitWithCommand, json bool
 	command                                            []string
@@ -44,6 +44,7 @@ func parse(args []string) (options, error) {
 	fs.StringVar(&o.channel, "channel", "", "channel name")
 	fs.StringVar(&o.endpoint, "endpoint", "", "relay host[:port]:/channel")
 	fs.StringVar(&o.mode, "mode", "", "shared or public (on initial publication)")
+	fs.StringVar(&o.out, "out", "", "save exported client config to a new private file")
 	fs.Var(&o.publish, "publish", "name:port or name:host:port (repeatable)")
 	fs.Var(&o.bind, "bind", "name[:port] or name:host:port (repeatable)")
 	fs.BoolVar(&o.list, "list", false, "list remote services")
@@ -126,6 +127,9 @@ func run(ctx context.Context, args []string) error {
 	if o.json && !o.list {
 		return errors.New("-json requires -list")
 	}
+	if o.out != "" && !o.export {
+		return errors.New("-out requires -export-client")
+	}
 	if o.list {
 		return list(ctx, address, remote, o.json)
 	}
@@ -143,6 +147,13 @@ func run(ctx context.Context, args []string) error {
 		fmt.Fprintln(os.Stderr, "Client config contains credentials; keep it private.")
 		if c.Mode == "public" {
 			fmt.Fprintln(os.Stderr, "Restart the publisher to load the new client authorization.")
+		}
+		if o.out != "" {
+			if err := exportFile(o.out, &config.File{Channels: map[string]*config.Channel{o.channel: client}}); err != nil {
+				return err
+			}
+			fmt.Fprintln(os.Stderr, "Saved client config:", o.out)
+			return nil
 		}
 		return toml.NewEncoder(os.Stdout).Encode(&config.File{Channels: map[string]*config.Channel{o.channel: client}})
 	}
